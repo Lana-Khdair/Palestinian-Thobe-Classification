@@ -55,8 +55,8 @@ BATCH_SIZE  = 8          # Smaller batch → more gradient updates per epoch (im
 CLASSES     = ['nablus', 'bethlehem', 'jaffa']
 NUM_CLASSES = len(CLASSES)
 SEED        = 42
-DATASET_DIR = 'Dataset'
-DATA_DIR    = 'data_split'
+DATASET_DIR = 'Dataset_cropped'
+DATA_DIR    = 'data_split_cropped' 
 
 # ── Tiny-dataset knobs ──────────────────────────────────────
 # Total images ≈ 179  →  train ≈ 143, val ≈ 18, test ≈ 18
@@ -231,56 +231,113 @@ def run_eda(data_dir, classes=CLASSES):
 # =============================================================
 #  DATA TRANSFORMS & LOADERS
 # =============================================================
+# =============================================================
+#  CHEST CROPPING TRANSFORM
+# =============================================================
 
-# ImageNet normalization — used by both models in PyTorch
+class ChestCrop:
+    """
+    Crop the chest embroidery area from flat-lay thobe images.
+
+    Assumes:
+    - thobe centered
+    - square image
+    - sleeves horizontal
+    - same positioning across dataset
+    """
+
+    def __call__(self, img):
+
+        w, h = img.size
+
+        # -----------------------------------------
+        # Crop coordinates
+        # -----------------------------------------
+        # Adjust these if needed after testing
+
+        left   = int(w * 0.18)
+        top    = int(h * 0.03)
+
+        right  = int(w * 0.82)
+        bottom = int(h * 0.52)
+
+        img = img.crop((left, top, right, bottom))
+
+        return img
+
+
+# =============================================================
+#  DATA TRANSFORMS
+# =============================================================
+
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 def make_transforms():
-    """
-    Returns (train_transform, val_test_transform).
 
-    ── Tiny-dataset augmentation strategy (~179 images total) ──
-    Heavy augmentation acts as a regulariser and artificially
-    expands the effective training set. Choices are thobe-aware:
-
-    • RandomHorizontalFlip       – thobes are left-right symmetric
-    • RandomRotation(±10°)       – slight tilt is realistic
-    • RandomResizedCrop(0.75-1)  – zoom in/out on garment details
-    • ColorJitter                – lighting & colour temperature variation
-    • RandomGrayscale(p=0.05)    – rare but forces shape-not-colour learning
-    • RandomPerspective           – simulates camera angle changes
-    • RandomErasing              – occlusion regularisation (bag / arm overlay)
-
-    Val/test: only resize + centre-crop + normalise (no augmentation).
-    """
     train_tf = transforms.Compose([
-        transforms.Resize((IMG_SIZE + 32, IMG_SIZE + 32)),   # slightly larger
-        transforms.RandomResizedCrop(IMG_SIZE, scale=(0.75, 1.0), ratio=(0.9, 1.1)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.RandomPerspective(distortion_scale=0.2, p=0.4),
-        transforms.ColorJitter(
-            brightness=0.3, contrast=0.3,
-            saturation=0.3, hue=0.05
+
+        # -----------------------------------------
+        # CHEST CROP
+        # -----------------------------------------
+        ChestCrop(),
+
+        # -----------------------------------------
+        # Resize
+        # -----------------------------------------
+        transforms.Resize((IMG_SIZE + 32, IMG_SIZE + 32)),
+
+        # -----------------------------------------
+        # Augmentations
+        # -----------------------------------------
+        transforms.RandomResizedCrop(
+            IMG_SIZE,
+            scale=(0.85, 1.0),
+            ratio=(0.9, 1.1)
         ),
-        transforms.RandomGrayscale(p=0.05),
+
+        transforms.RandomHorizontalFlip(p=0.2),
+
+        transforms.RandomRotation(degrees=5),
+
+        transforms.ColorJitter(
+            brightness=0.2,
+            contrast=0.2,
+            saturation=0.2,
+            hue=0.03
+        ),
+
         transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        # RandomErasing: randomly masks 2-20% of the image → occlusion robustness
-        transforms.RandomErasing(p=0.3, scale=(0.02, 0.20),
-                                  ratio=(0.3, 3.3), value='random'),
+
+        transforms.Normalize(
+            IMAGENET_MEAN,
+            IMAGENET_STD
+        ),
+
+        transforms.RandomErasing(
+            p=0.08,
+            scale=(0.02, 0.10),
+            ratio=(0.3, 3.3),
+            value='random'
+        ),
     ])
 
+
     val_test_tf = transforms.Compose([
-        transforms.Resize((IMG_SIZE + 32, IMG_SIZE + 32)),
-        transforms.CenterCrop(IMG_SIZE),
+
+        ChestCrop(),
+
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+
         transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+
+        transforms.Normalize(
+            IMAGENET_MEAN,
+            IMAGENET_STD
+        ),
     ])
 
     return train_tf, val_test_tf
-
 
 def make_loaders(data_dir=DATA_DIR, batch_size=BATCH_SIZE):
     """
@@ -1303,10 +1360,10 @@ def main():
     print('=' * 60)
 
     eff_model_a, eff_hist_a, eff_a_val = strategy_a_eff(
-        train_loader, val_loader, n_layers=10)
+        train_loader, val_loader, n_layers=3)
 
     mob_model_a, mob_hist_a, mob_a_val = strategy_a_mob(
-        train_loader, val_loader, n_layers=10)
+        train_loader, val_loader, n_layers=5)
 
     eff_model_b, eff_hist_b, eff_b_val = strategy_b_eff(
         train_loader, val_loader, unfreeze_from_block=6)
@@ -1390,8 +1447,8 @@ def main():
 
     show_gradcam(
         model=best_eff,
-        image_path='Dataset/jaffa/ChatGPT Image May 8, 2026, 06_37_32 PM (1).png',
-        transform=val_tf,
+       image_path= 'data_split_cropped/train/bethlehem/1778440923378.png',
+       transform=val_tf,
         target_layer=best_eff.features[-1],
         class_names=CLASSES,
         save_name='gradcam_eff.png'
@@ -1399,8 +1456,8 @@ def main():
 
     show_gradcam(
         model=best_mob,
-        image_path='Dataset/jaffa/ChatGPT Image May 8, 2026, 06_37_32 PM (1).png',
-        transform=val_tf,
+       image_path='data_split_cropped/train/bethlehem/1778440923378.png',
+     transform=val_tf,
         target_layer=best_mob.features[-1],
         class_names=CLASSES,
         save_name='gradcam_mob.png'
