@@ -294,19 +294,25 @@ def make_transforms():
         # -----------------------------------------
         transforms.RandomResizedCrop(
             IMG_SIZE,
-            scale=(0.85, 1.0),
-            ratio=(0.9, 1.1)
+            scale=(0.70, 1.0),
+            ratio=(0.8, 1.2)
         ),
 
-        transforms.RandomHorizontalFlip(p=0.2),
+        transforms.RandomHorizontalFlip(p=0.5),
 
-        transforms.RandomRotation(degrees=5),
+        transforms.RandomRotation(degrees=15),
 
         transforms.ColorJitter(
-            brightness=0.2,
-            contrast=0.2,
-            saturation=0.2,
-            hue=0.03
+            brightness=0.35,
+            contrast=0.35,
+            saturation=0.3,
+            hue=0.05
+        ),
+
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.08, 0.08),
+            shear=8
         ),
 
         transforms.ToTensor(),
@@ -317,8 +323,8 @@ def make_transforms():
         ),
 
         transforms.RandomErasing(
-            p=0.08,
-            scale=(0.02, 0.10),
+            p=0.15,
+            scale=(0.02, 0.15),
             ratio=(0.3, 3.3),
             value='random'
         ),
@@ -426,7 +432,8 @@ def build_efficientnet(freeze=True, lr=LR_HEAD):
 
     model = model.to(DEVICE)
     optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=lr
+        filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+        weight_decay=1e-4
     )
     return model, optimizer
 
@@ -459,7 +466,8 @@ def build_mobilenet(freeze=True, lr=LR_HEAD):
 
     model = model.to(DEVICE)
     optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=lr
+        filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+        weight_decay=1e-4
     )
     return model, optimizer
 
@@ -981,7 +989,7 @@ def strategy_a_eff(train_loader, val_loader, n_layers=10):
     print(f'   Trainable params                  : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='eff_strategy_a.pt')
 
@@ -1017,7 +1025,7 @@ def strategy_a_mob(train_loader, val_loader, n_layers=10):
     print(f'   Trainable params                  : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='mob_strategy_a.pt')
 
@@ -1055,7 +1063,7 @@ def strategy_b_eff(train_loader, val_loader, unfreeze_from_block=6):
     print(f'   Trainable params : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='eff_strategy_b.pt')
 
@@ -1093,7 +1101,7 @@ def strategy_b_mob(train_loader, val_loader, unfreeze_from_block=15):
     print(f'   Trainable params : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='mob_strategy_b.pt')
 
