@@ -8,13 +8,32 @@ import numpy as np
 import base64
 from io import BytesIO
 
-CLASSES = ['nablus', 'bethlehem', 'jaffa']
+# IMPORTANT: This order MUST match torchvision.datasets.ImageFolder's
+# alphabetical class_to_idx ordering used during training — NOT an
+# arbitrary order. ImageFolder sorts folder names alphabetically:
+# bethlehem -> 0, jaffa -> 1, nablus -> 2
+CLASSES = ['bethlehem', 'jaffa', 'nablus']
 IMG_SIZE = 224
 DEVICE = torch.device('cpu')
 
+
+class ChestCrop:
+    """
+    Crop the chest embroidery area from flat-lay thobe images.
+    Must match thobe_classifier.py exactly (same crop ratios used in training/val/test).
+    """
+    def __call__(self, img):
+        w, h = img.size
+        left   = int(w * 0.12)
+        top    = int(h * 0.02)
+        right  = int(w * 0.88)
+        bottom = int(h * 0.60)
+        return img.crop((left, top, right, bottom))
+
+
 val_transform = transforms.Compose([
-    transforms.Resize((IMG_SIZE + 32, IMG_SIZE + 32)),
-    transforms.CenterCrop(IMG_SIZE),
+    ChestCrop(),
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
 ])
@@ -28,7 +47,18 @@ st.markdown("""
 html, body, [class*="css"] {
     background-color: #5C1A1A !important;
 }
+/* Hide Streamlit's default top toolbar (Deploy button, menu) */
+header[data-testid="stHeader"] {
+    display: none;
+}
 
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
 .stApp {
     background: #5C1A1A;
 }
@@ -43,6 +73,7 @@ html, body, [class*="css"] {
     text-align: center;
     padding: 1.5rem 0 1rem;
 }
+            
 
 .title-main {
     font-family: 'Amiri', serif;
@@ -66,18 +97,30 @@ html, body, [class*="css"] {
 }
 
 .thobe-border {
-    width: 100%;
-    text-align: center;
-    font-size: 1.1rem;
-    color: #D4AF82;
-    letter-spacing: 4px;
-    margin: 0.5rem 0 1.5rem;
-    animation: borderPulse 2.5s ease-in-out infinite;
+    display: none;
 }
 
-@keyframes borderPulse {
-    0%, 100% { opacity: 0.6; }
-    50%       { opacity: 1; }
+.tatreez-strip {
+    width: 100%;
+    line-height: 0;
+}
+
+.tatreez-side {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 28px;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+.tatreez-side.left  { left: 0; }
+.tatreez-side.right { right: 0; }
+
+.main-content-wrap {
+    position: relative;
+    z-index: 1;
 }
 
 /* Cards */
@@ -169,34 +212,67 @@ div[data-testid="stImage"] img {
     border: 0.5px solid rgba(212,175,130,0.3);
 }
 
-/* Bottom tatreez bar */
-.tatreez-bar {
-    text-align: center;
-    font-size: 1.3rem;
-    color: #D4AF82;
-    letter-spacing: 6px;
-    margin-top: 2rem;
-    padding: 0.8rem 0;
-    border-top: 0.5px solid rgba(212,175,130,0.2);
-    animation: borderPulse 3s ease-in-out infinite;
-}
+
 
 /* Particles canvas */
 #particles-js { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
-
+ 
+/* Keep content clear of the side tatreez strips */
+.block-container {
+    padding-left: 48px !important;
+    padding-right: 48px !important;
+}
+ 
 /* All text */
 p, div, span, label { color: #D4AF82; }
 h1, h2, h3 { color: #F5E6C8 !important; }
-
+ 
 /* Streamlit override */
 section[data-testid="stSidebar"] { display: none; }
 </style>
-
+ 
 <div class="title-box">
     <div class="title-main">🇵🇸 Palestinian Thobe Classifier</div>
     <div class="title-sub">NABLUS · BETHLEHEM · JAFFA</div>
 </div>
-<div class="thobe-border">◆ ✦ ◇ ✧ ◈ ✦ ◆ ◇ ✧ ◈ ✦ ◆ ◇ ✧ ◈ ✦ ◆</div>
+ 
+<div class="tatreez-strip">
+<svg width="100%" height="36" viewBox="0 0 600 36" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="tatreezTop" width="40" height="36" patternUnits="userSpaceOnUse">
+      <rect width="40" height="36" fill="none"/>
+      <path d="M20 4 L32 18 L20 32 L8 18 Z" fill="none" stroke="#D4AF82" stroke-width="1.4"/>
+      <path d="M20 11 L25 18 L20 25 L15 18 Z" fill="#D4AF82"/>
+      <rect x="18" y="0" width="4" height="4" fill="#8B2E2E" stroke="#D4AF82" stroke-width="0.6"/>
+      <rect x="18" y="32" width="4" height="4" fill="#8B2E2E" stroke="#D4AF82" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+  <rect width="600" height="36" fill="url(#tatreezTop)"/>
+</svg>
+</div>
+ 
+<div class="main-content-wrap">
+""", unsafe_allow_html=True)
+ 
+st.markdown("""
+<svg class="tatreez-side left" viewBox="0 0 28 600" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="tatreezSideL" width="28" height="40" patternUnits="userSpaceOnUse">
+      <path d="M4 20 L14 8 L24 20 L14 32 Z" fill="none" stroke="#D4AF82" stroke-width="1.2"/>
+      <path d="M14 14 L19 20 L14 26 L9 20 Z" fill="#8B2E2E"/>
+    </pattern>
+  </defs>
+  <rect width="28" height="600" fill="url(#tatreezSideL)"/>
+</svg>
+<svg class="tatreez-side right" viewBox="0 0 28 600" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="tatreezSideR" width="28" height="40" patternUnits="userSpaceOnUse">
+      <path d="M4 20 L14 8 L24 20 L14 32 Z" fill="none" stroke="#D4AF82" stroke-width="1.2"/>
+      <path d="M14 14 L19 20 L14 26 L9 20 Z" fill="#8B2E2E"/>
+    </pattern>
+  </defs>
+  <rect width="28" height="600" fill="url(#tatreezSideR)"/>
+</svg>
 """, unsafe_allow_html=True)
 
 
@@ -275,4 +351,21 @@ if uploaded_file:
             st.markdown(f"<span style='color:#F5E6C8; font-size:13px;'>{region_ar[cls]} {prob*100:.1f}%</span>",
                         unsafe_allow_html=True)
 
-st.markdown('<div class="tatreez-bar">◆ ✦ ✧ ◈ ✦ ◆ ✧ ◈ ✦ ◆ ◇ ✧ ◈</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
+ 
+st.markdown("""
+<div class="tatreez-strip">
+<svg width="100%" height="36" viewBox="0 0 600 36" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="tatreezBottom" width="40" height="36" patternUnits="userSpaceOnUse">
+      <path d="M20 4 L32 18 L20 32 L8 18 Z" fill="none" stroke="#D4AF82" stroke-width="1.4"/>
+      <path d="M20 11 L25 18 L20 25 L15 18 Z" fill="#D4AF82"/>
+      <rect x="18" y="0" width="4" height="4" fill="#8B2E2E" stroke="#D4AF82" stroke-width="0.6"/>
+      <rect x="18" y="32" width="4" height="4" fill="#8B2E2E" stroke="#D4AF82" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+  <rect width="600" height="36" fill="url(#tatreezBottom)"/>
+</svg>
+</div>
+""", unsafe_allow_html=True)
+ 
