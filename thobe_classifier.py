@@ -10,7 +10,9 @@
 #  ├── bethlehem/
 #  └── jaffa/
 #
-#  The script auto-splits into train / val / test (80/10/10)
+#  The script auto-splits Dataset_cropped/ into train / val (80/20).
+#  Test set comes separately from RealTest_candidates/ (raw, uncropped
+#  real-world images) — NOT a split of Dataset/.
 # =============================================================
 
 import os
@@ -56,7 +58,8 @@ CLASSES     = ['nablus', 'bethlehem', 'jaffa']
 NUM_CLASSES = len(CLASSES)
 SEED        = 42
 DATASET_DIR = 'Dataset_cropped'
-DATA_DIR    = 'data_split_cropped' 
+DATA_DIR    = 'data_split_cropped'
+TEST_DIR    = 'RealTest_candidates'   # raw, uncropped real-world test images
 
 # ── Tiny-dataset knobs ──────────────────────────────────────
 # Total images ≈ 179  →  train ≈ 143, val ≈ 18, test ≈ 18
@@ -92,8 +95,8 @@ print()
 # =============================================================
 
 def prepare_dataset(src_dir, dst_dir=DATA_DIR,
-                    train_ratio=0.80, val_ratio=0.10, seed=SEED):
-    """Split flat Dataset/ into train / val / test. Skips if done."""
+                    train_ratio=0.80, seed=SEED):
+    """Split flat Dataset/ into train / val only. Skips if done."""
     if os.path.exists(dst_dir):
         print(f'✅  {dst_dir}/ already exists — skipping split.\n')
         return dst_dir
@@ -101,8 +104,7 @@ def prepare_dataset(src_dir, dst_dir=DATA_DIR,
     classes = [d for d in os.listdir(src_dir)
                if os.path.isdir(os.path.join(src_dir, d))]
     print(f'Found classes : {classes}')
-    print(f'Split ratio   : train={train_ratio} | val={val_ratio} '
-          f'| test={1-train_ratio-val_ratio:.2f}\n')
+    print(f'Split ratio   : train={train_ratio} | val={1-train_ratio:.2f}\n')
 
     for cls in classes:
         imgs = os.listdir(os.path.join(src_dir, cls))
@@ -110,12 +112,10 @@ def prepare_dataset(src_dir, dst_dir=DATA_DIR,
         random.shuffle(imgs)
 
         n_train = int(len(imgs) * train_ratio)
-        n_val   = int(len(imgs) * val_ratio)
 
         split_map = {
             'train': imgs[:n_train],
-            'val'  : imgs[n_train:n_train + n_val],
-            'test' : imgs[n_train + n_val:]
+            'val'  : imgs[n_train:]
         }
 
         for split, files in split_map.items():
@@ -128,7 +128,7 @@ def prepare_dataset(src_dir, dst_dir=DATA_DIR,
                 )
             print(f'  {split:5s}/{cls:12s}  →  {len(files)} images')
 
-    print('\n✅  Dataset split complete!\n')
+    print('\n✅  Dataset split complete (train/val only)!\n')
     return dst_dir
 
 
@@ -136,7 +136,7 @@ def prepare_dataset(src_dir, dst_dir=DATA_DIR,
 #  EDA
 # =============================================================
 
-def run_eda(data_dir, classes=CLASSES):
+def run_eda(data_dir, classes=CLASSES, test_dir=TEST_DIR):
     splits = ['train', 'val', 'test']
     counts = {cls: {} for cls in classes}
 
@@ -146,9 +146,11 @@ def run_eda(data_dir, classes=CLASSES):
     print(f"{'Class':<14} {'Train':>6} {'Val':>6} {'Test':>6} {'Total':>7}")
     print('-' * 52)
     for cls in classes:
-        for split in splits:
+        for split in ['train', 'val']:
             path = os.path.join(data_dir, split, cls)
             counts[cls][split] = len(os.listdir(path)) if os.path.exists(path) else 0
+        test_path = os.path.join(test_dir, cls)
+        counts[cls]['test'] = len(os.listdir(test_path)) if os.path.exists(test_path) else 0
         total = sum(counts[cls].values())
         print(f"{cls:<14} {counts[cls]['train']:>6} "
               f"{counts[cls]['val']:>6} {counts[cls]['test']:>6} {total:>7}")
@@ -292,19 +294,25 @@ def make_transforms():
         # -----------------------------------------
         transforms.RandomResizedCrop(
             IMG_SIZE,
-            scale=(0.85, 1.0),
-            ratio=(0.9, 1.1)
+            scale=(0.70, 1.0),
+            ratio=(0.8, 1.2)
         ),
 
-        transforms.RandomHorizontalFlip(p=0.2),
+        transforms.RandomHorizontalFlip(p=0.5),
 
-        transforms.RandomRotation(degrees=5),
+        transforms.RandomRotation(degrees=15),
 
         transforms.ColorJitter(
-            brightness=0.2,
-            contrast=0.2,
-            saturation=0.2,
-            hue=0.03
+            brightness=0.35,
+            contrast=0.35,
+            saturation=0.3,
+            hue=0.05
+        ),
+
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.08, 0.08),
+            shear=8
         ),
 
         transforms.ToTensor(),
@@ -315,8 +323,8 @@ def make_transforms():
         ),
 
         transforms.RandomErasing(
-            p=0.08,
-            scale=(0.02, 0.10),
+            p=0.15,
+            scale=(0.02, 0.15),
             ratio=(0.3, 3.3),
             value='random'
         ),
@@ -339,9 +347,13 @@ def make_transforms():
 
     return train_tf, val_test_tf
 
-def make_loaders(data_dir=DATA_DIR, batch_size=BATCH_SIZE):
+def make_loaders(data_dir=DATA_DIR, test_dir=TEST_DIR, batch_size=BATCH_SIZE):
     """
     Build DataLoaders for train / val / test.
+
+    train / val come from data_dir (cropped, split 80/20).
+    test comes from test_dir (RealTest_candidates) — raw, uncropped,
+    real-world test images.
 
     ── Tiny-dataset additions ──
     WeightedRandomSampler: compensates for class imbalance
@@ -352,7 +364,7 @@ def make_loaders(data_dir=DATA_DIR, batch_size=BATCH_SIZE):
 
     train_ds = datasets.ImageFolder(os.path.join(data_dir, 'train'), transform=train_tf)
     val_ds   = datasets.ImageFolder(os.path.join(data_dir, 'val'),   transform=val_test_tf)
-    test_ds  = datasets.ImageFolder(os.path.join(data_dir, 'test'),  transform=val_test_tf)
+    test_ds  = datasets.ImageFolder(test_dir,                        transform=val_test_tf)
 
     print(f'ImageFolder class indices : {train_ds.class_to_idx}')
 
@@ -420,7 +432,8 @@ def build_efficientnet(freeze=True, lr=LR_HEAD):
 
     model = model.to(DEVICE)
     optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=lr
+        filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+        weight_decay=1e-4
     )
     return model, optimizer
 
@@ -453,7 +466,8 @@ def build_mobilenet(freeze=True, lr=LR_HEAD):
 
     model = model.to(DEVICE)
     optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=lr
+        filter(lambda p: p.requires_grad, model.parameters()), lr=lr,
+        weight_decay=1e-4
     )
     return model, optimizer
 
@@ -975,7 +989,7 @@ def strategy_a_eff(train_loader, val_loader, n_layers=10):
     print(f'   Trainable params                  : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='eff_strategy_a.pt')
 
@@ -1011,7 +1025,7 @@ def strategy_a_mob(train_loader, val_loader, n_layers=10):
     print(f'   Trainable params                  : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='mob_strategy_a.pt')
 
@@ -1049,7 +1063,7 @@ def strategy_b_eff(train_loader, val_loader, unfreeze_from_block=6):
     print(f'   Trainable params : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='eff_strategy_b.pt')
 
@@ -1087,7 +1101,7 @@ def strategy_b_mob(train_loader, val_loader, unfreeze_from_block=15):
     print(f'   Trainable params : {trainable:,}')
 
     opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                     lr=LR_FINETUNE)
+                     lr=LR_FINETUNE, weight_decay=1e-4)
     hist = fit(model, opt, train_loader, val_loader,
                epochs=30, patience=15, save_path='mob_strategy_b.pt')
 

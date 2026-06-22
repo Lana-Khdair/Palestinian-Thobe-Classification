@@ -38,9 +38,22 @@ split = Path("data_split")
 if split.exists():
     out_split = Path("data_split_cropped")
     total2 = 0
-    for s in ["train","val","test"]:
+    for s in ["train","val"]:
         total2 += process_dir(split/s, out_split/s)
     print(f"Also wrote {total2} images to data_split_cropped/")
     print("Update your script: DATA_DIR = 'data_split_cropped'")
 else:
     print("No data_split/ found - run prepare_dataset() first, then re-run this.")
+
+import shutil
+
+real_test = Path("RealTest_candidates")
+if real_test.exists():
+    out_real_test = Path("RealTest_candidates_cropped")
+    if out_real_test.exists():
+        shutil.rmtree(out_real_test)
+    shutil.copytree(real_test, out_real_test)
+    print(f"Copied RealTest_candidates/ -> {out_real_test}/ (no cropping, as-is)")
+    print("Use RealTest_candidates_cropped/ as your test set")
+else:
+    print("No RealTest_candidates/ found - skipping.")
